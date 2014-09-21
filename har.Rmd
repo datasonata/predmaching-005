@@ -1,0 +1,118 @@
+Practical Machine Learning Writeup - Qualitative Activity Recognition of Weight Lifting Exercises
+========================================================
+
+The goal of this assignment is to predict the manner in which people that used the personal activity tracking devices exercised, as represented by the data in the weight lifting exercise datasets. The **training** and **testing** datasets were provided by a human activity recognition research group (see http://groupware.les.inf.puc-rio.br/har)
+
+
+## Data
+
+Training and testing datasets were available for download from the following URLs:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+Once the files were downloaded and placed in a working directory, we loaded the files using read.csv method
+```{r}
+pml_training <- read.csv("pml-training.csv", na.strings=c("NA",""), header=TRUE)
+pml_testing <- read.csv("pml-testing.csv", na.strings=c("NA",""), header=TRUE)
+train_cols <- colnames(pml_training)
+test_cols <- colnames(pml_testing)
+```
+We compared the columns, and determined that they are all pretty much the same except for the last column,
+which is classe in training set, and problem_id in testing set
+```{r}
+all.equal(train_cols[1:length(train_cols)], test_cols[1:length(test_cols)])
+```
+
+## Processing
+
+First, we imported libraries that are used in the code (had to install "rattle" and "rpart.plot" packages)
+```{r}
+library(caret); library(rattle); library(rpart.plot); library(randomForest)
+```
+
+Looking at the training and testing set columns, we saw that columns 1 through 7 are useless in our predictions, so we got rid of those
+along with columns that contained NAs
+```{r}
+pml_training_slimmed <- pml_training[, !apply(is.na(pml_training), 2, any)]
+pml_training_slimmed <- pml_training_slimmed[,8:length(colnames(pml_training_slimmed))]
+pml_testing_slimmed <- pml_testing[, !apply(is.na(pml_testing), 2, any)]
+pml_testing_slimmed <- pml_testing_slimmed[,8:length(colnames(pml_testing_slimmed))]
+colnames(pml_training_slimmed)
+colnames(pml_testing_slimmed)
+```
+
+## Selecting predictors
+
+To determine whether any predictors in the data are low variance, we examined all predictors using near zero variability
+and identified predictors that had near zero variability value FALSE
+```{r}
+nzv_training <- nearZeroVar(pml_training_slimmed, saveMetrics=TRUE)
+nzv_testing <- nearZeroVar(pml_testing_slimmed, saveMetrics=TRUE)
+high_val_pred <- row.names(nzv_training[nzv_training$nzv == FALSE,])
+
+length(high_val_pred)
+length(colnames(pml_testing_slimmed))
+```
+It turned out that all columns in the slimmed training set we produced are high value predictors
+
+## Prediction models and parameters
+
+Since we had a monster machine, we could perform training models on the entire training set (without further splitting it).
+Next, we performed classification tree evaluation on the training set:
+```{r}
+set.seed(31231)
+modFit <- train(classe ~ ., data = pml_training_slimmed, method="rpart")
+print(modFit, digits=3)
+print(modFit$finalModel, digits=3)
+```
+We used fancyRpartPlot to display visually
+
+```{r fig.width=7, fig.height=6}
+fancyRpartPlot(modFit$finalModel)
+```
+
+Further, we ran the model against the training set and examined the confusion matrix 
+to evaluate accuracy and the confidence intervals
+```{r}
+pml_train_predict <- predict(modFit, newdata=pml_training_slimmed)
+print(confusionMatrix(pml_train_predict, pml_training_slimmed$classe), digits=4)
+```
+
+## Accuracy and Out of Sample Error
+
+As we could observe above, the accuracy was quite low (0.4956) and when attempted to use cross validation and preprocessing, it produced no effect on the accuracy. 
+The accuracy remained low at the same number. This means the out of sample error is 1 - 0.4956 = 0.5044
+```{r}
+set.seed(31231)
+modFit <- train(classe ~ ., preProcess=c("center", "scale"), trControl=trainControl(method = "cv", number = 4), data = pml_training_slimmed, method="rpart")
+print(modFit, digits=3)
+pml_train_predict_preproc <- predict(modFit, newdata=pml_training_slimmed)
+print(confusionMatrix(pml_train_predict_preproc, pml_training_slimmed$classe), digits=4)
+```
+
+Next, we decided to train using  random forest methodology to see if we can improve the accuracy, using pre-processing and cross validation. Based on what we know
+about random forest prediction model (which is they're the most accurate), we expect the out of sample error to become close to zero.
+```{r}
+set.seed(31231)
+modFit <- train(classe ~ ., method="rf", preProcess=c("center", "scale"), trControl=trainControl(method = "cv", number = 4), data=pml_training_slimmed)
+print(modFit, digits=3)
+pml_train_predict_rf <- predict(modFit, newdata=pml_training_slimmed)
+print(confusionMatrix(pml_train_predict_rf, pml_training_slimmed$classe), digits=4)
+```
+
+Random forest model (though it took a long time to process), significantly improved accuracy (to 1.0)! This means our out of sample error was 0.0, which means 100% accuracy.
+Very promising!
+
+## Conclusion
+
+The random forest model was run agains the slimmed test dataset, and produced the following predictions.
+```{r}
+pml_test_predict_rf <- predict(modFit, newdata=pml_testing_slimmed)
+print(pml_test_predict_rf)
+```
+
+
+
+
